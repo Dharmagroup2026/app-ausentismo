@@ -1,0 +1,19 @@
+{
+  "name": "app-ausentismo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "papaparse": "^5.4.1",
+    "recharts": "^2.10.3",
+    "lucide-react": "^0.300.0"
+  }
+}
