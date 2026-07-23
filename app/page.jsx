@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell 
 } from 'recharts';
-import { Building2, FileText, Upload, Search, ListFilter, Trophy } from 'lucide-react';
+import { Building2, FileText, Upload, Search, ListFilter, Trophy, Calendar, AlertTriangle, TrendingUp } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
@@ -14,8 +14,9 @@ export default function AusentismoDashboard() {
   const [registros, setRegistros] = useState([]);
   const [empresaFiltro, setEmpresaFiltro] = useState('TODAS');
   const [supervisorFiltro, setSupervisorFiltro] = useState('TODOS');
+  const [mesFiltro, setMesFiltro] = useState('TODOS');
   const [busqueda, setBusqueda] = useState('');
-  const [vistaTabla, setVistaTabla] = useState('ranking'); // 'ranking' o 'historial'
+  const [vistaTabla, setVistaTabla] = useState('ranking'); // 'ranking', 'historial', 'recurrentes'
 
   const manejarArchivo = (e) => {
     const file = e.target.files[0];
@@ -25,17 +26,32 @@ export default function AusentismoDashboard() {
       header: true,
       skipEmptyLines: true,
       complete: (result) => {
-        const datosMapeados = result.data.map((r, i) => ({
-          id: i + 1,
-          fecha: r['FECHA'] || r['Fecha'] || 'N/A',
-          nombre: r['NOMBRE'] || r['Nombre'] || 'Desconocido',
-          motivo: r['MOTIVO'] || r['Motivo'] || 'Sin Especificar',
-          certif: (r['CERTIF.'] || r['Certif.'] || r['CERTIFICADO'] || 'NO').trim().toUpperCase(),
-          empresa: r['EMPRESA'] || r['Empresa'] || 'Sin Empresa',
-          supervisor: r['SUPERVISOR'] || r['Supervisor'] || 'Sin Asignar',
-          cantDias: parseInt(r['CANT. DIAS'] || r['Cant. Dias'] || r['CANT DIAS'] || 1, 10),
-          observaciones: r['OBSERVACIONES'] || r['Observaciones'] || '-'
-        }));
+        const datosMapeados = result.data.map((r, i) => {
+          const fechaTexto = r['FECHA'] || r['Fecha'] || 'N/A';
+          let mesNom = 'Sin Mes';
+          
+          if (fechaTexto !== 'N/A') {
+            const partes = fechaTexto.split(/[-/]/);
+            if (partes.length >= 2) {
+              const numMes = parseInt(partes[1], 10);
+              const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+              if (numMes >= 1 && numMes <= 12) mesNom = meses[numMes - 1];
+            }
+          }
+
+          return {
+            id: i + 1,
+            fecha: fechaTexto,
+            mes: mesNom,
+            nombre: r['NOMBRE'] || r['Nombre'] || 'Desconocido',
+            motivo: r['MOTIVO'] || r['Motivo'] || 'Sin Especificar',
+            certif: (r['CERTIF.'] || r['Certif.'] || r['CERTIFICADO'] || 'NO').trim().toUpperCase(),
+            empresa: r['EMPRESA'] || r['Empresa'] || 'Sin Empresa',
+            supervisor: r['SUPERVISOR'] || r['Supervisor'] || 'Sin Asignar',
+            cantDias: parseInt(r['CANT. DIAS'] || r['Cant. Dias'] || r['CANT DIAS'] || 1, 10),
+            observaciones: r['OBSERVACIONES'] || r['Observaciones'] || '-'
+          };
+        });
         setRegistros(datosMapeados);
       }
     });
@@ -43,21 +59,69 @@ export default function AusentismoDashboard() {
 
   const empresasUnicas = useMemo(() => ['TODAS', ...new Set(registros.map(r => r.empresa))], [registros]);
   const supervisoresUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.supervisor))], [registros]);
+  const mesesUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.mes).filter(m => m !== 'Sin Mes'))], [registros]);
 
   const datosFiltrados = useMemo(() => {
     return registros.filter(r => {
       const cumpleEmpresa = empresaFiltro === 'TODAS' || r.empresa === empresaFiltro;
       const cumpleSupervisor = supervisorFiltro === 'TODOS' || r.supervisor === supervisorFiltro;
+      const cumpleMes = mesFiltro === 'TODOS' || r.mes === mesFiltro;
       const cumpleBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase()) || 
                              r.motivo.toLowerCase().includes(busqueda.toLowerCase());
-      return cumpleEmpresa && cumpleSupervisor && cumpleBusqueda;
+      return cumpleEmpresa && cumpleSupervisor && cumpleMes && cumpleBusqueda;
     });
-  }, [registros, empresaFiltro, supervisorFiltro, busqueda]);
+  }, [registros, empresaFiltro, supervisorFiltro, mesFiltro, busqueda]);
 
   const totalDias = useMemo(() => datosFiltrados.reduce((acc, r) => acc + r.cantDias, 0), [datosFiltrados]);
   const totalAusencias = datosFiltrados.length;
   const conCertificado = datosFiltrados.filter(r => r.certif === 'SI' || r.certif === 'S').length;
   const pctCertificado = totalAusencias > 0 ? ((conCertificado / totalAusencias) * 100).toFixed(1) : 0;
+
+  // Detección de recurrentes y proyectado anual
+  const colaboradoresRecurrentes = useMemo(() => {
+    const mapaPersonas = {};
+
+    // Tomamos los datos según empresa y supervisor (sin filtrar por mes único para analizar su historia)
+    const datosBase = registros.filter(r => {
+      const cumpleEmpresa = empresaFiltro === 'TODAS' || r.empresa === empresaFiltro;
+      const cumpleSupervisor = supervisorFiltro === 'TODOS' || r.supervisor === supervisorFiltro;
+      return cumpleEmpresa && cumpleSupervisor;
+    });
+
+    datosBase.forEach(r => {
+      if (!mapaPersonas[r.nombre]) {
+        mapaPersonas[r.nombre] = { 
+          nombre: r.nombre, 
+          empresa: r.empresa, 
+          supervisor: r.supervisor, 
+          mesesConFalta: new Set(),
+          totalDias: 0,
+          totalFaltas: 0
+        };
+      }
+      mapaPersonas[r.nombre].mesesConFalta.add(r.mes);
+      mapaPersonas[r.nombre].totalDias += r.cantDias;
+      mapaPersonas[r.nombre].totalFaltas += 1;
+    });
+
+    const cantidadMesesAnalizados = Math.max(1, mesesUnicos.length);
+
+    return Object.values(mapaPersonas)
+      .map(p => {
+        const cantMeses = p.mesesConFalta.size;
+        const promedioMensual = p.totalDias / Math.max(1, cantMeses);
+        const proyectadoAnual = Math.round(promedioMensual * 12);
+        
+        return {
+          ...p,
+          cantMeses,
+          promedioMensual: promedioMensual.toFixed(1),
+          proyectadoAnual
+        };
+      })
+      .filter(p => p.cantMeses >= 2) // Considera recurrente si falta en 2 o más meses distintos
+      .sort((a, b) => b.proyectadoAnual - a.proyectadoAnual);
+  }, [registros, empresaFiltro, supervisorFiltro, mesesUnicos]);
 
   const dataEmpresas = useMemo(() => {
     const map = {};
@@ -94,7 +158,7 @@ export default function AusentismoDashboard() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Building2 className="text-blue-500" /> Tablero de Control de Ausentismo
           </h1>
-          <p className="text-slate-400 text-sm">Monitoreo en tiempo real de faltas, motivos y métricas por equipo</p>
+          <p className="text-slate-400 text-sm">Monitoreo en tiempo real de faltas, motivos y proyecciones</p>
         </div>
         <label className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg cursor-pointer transition text-sm font-medium">
           <Upload className="w-4 h-4" /> Importar Planilla (.csv)
@@ -110,7 +174,13 @@ export default function AusentismoDashboard() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 my-6">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 my-6">
+            <div>
+              <label className="text-xs text-slate-400 font-semibold mb-1 block">MES</label>
+              <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                {mesesUnicos.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
             <div>
               <label className="text-xs text-slate-400 font-semibold mb-1 block">EMPRESA</label>
               <select value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
@@ -132,7 +202,7 @@ export default function AusentismoDashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
             <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50">
               <span className="text-xs font-bold text-red-400 tracking-wider uppercase">Días Totales Perdidos</span>
               <p className="text-3xl font-extrabold text-white mt-1">{totalDias} <span className="text-sm font-normal text-slate-400">días</span></p>
@@ -144,6 +214,12 @@ export default function AusentismoDashboard() {
             <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50">
               <span className="text-xs font-bold text-emerald-400 tracking-wider uppercase">% Con Certificado</span>
               <p className="text-3xl font-extrabold text-white mt-1">{pctCertificado}% <span className="text-sm font-normal text-slate-400">respaldadas</span></p>
+            </div>
+            <div className="bg-slate-800 p-5 rounded-xl border border-amber-500/30">
+              <span className="text-xs font-bold text-amber-400 tracking-wider uppercase flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" /> Faltas Recurrentes
+              </span>
+              <p className="text-3xl font-extrabold text-amber-300 mt-1">{colaboradoresRecurrentes.length} <span className="text-sm font-normal text-slate-400">personas</span></p>
             </div>
           </div>
 
@@ -182,12 +258,17 @@ export default function AusentismoDashboard() {
             </div>
           </div>
 
-          {/* Tabla Dinámica: Ranking vs Historial */}
+          {/* Tabla Dinámica con 3 Vistas */}
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
             <div className="p-4 border-b border-slate-700/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                {vistaTabla === 'ranking' ? <Trophy className="w-4 h-4 text-yellow-500" /> : <ListFilter className="w-4 h-4 text-blue-500" />}
-                {vistaTabla === 'ranking' ? 'Personas con Mayor Ausentismo' : 'Historial Detallado de Licencias'}
+                {vistaTabla === 'ranking' && <Trophy className="w-4 h-4 text-yellow-500" />}
+                {vistaTabla === 'historial' && <ListFilter className="w-4 h-4 text-blue-500" />}
+                {vistaTabla === 'recurrentes' && <TrendingUp className="w-4 h-4 text-amber-500" />}
+                
+                {vistaTabla === 'ranking' && 'Personas con Mayor Ausentismo'}
+                {vistaTabla === 'historial' && 'Historial Detallado de Licencias'}
+                {vistaTabla === 'recurrentes' && 'Análisis de Recurrencia y Proyección Anual'}
               </h3>
               
               <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-700 text-xs font-medium">
@@ -196,6 +277,12 @@ export default function AusentismoDashboard() {
                   className={`px-3 py-1.5 rounded-md transition ${vistaTabla === 'ranking' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
                 >
                   Mayor Ausentismo
+                </button>
+                <button 
+                  onClick={() => setVistaTabla('recurrentes')}
+                  className={`px-3 py-1.5 rounded-md transition ${vistaTabla === 'recurrentes' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Recurrentes y Proyectado
                 </button>
                 <button 
                   onClick={() => setVistaTabla('historial')}
@@ -207,7 +294,7 @@ export default function AusentismoDashboard() {
             </div>
 
             <div className="overflow-x-auto">
-              {vistaTabla === 'ranking' ? (
+              {vistaTabla === 'ranking' && (
                 <table className="w-full text-left text-sm text-slate-300">
                   <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 font-semibold">
                     <tr>
@@ -230,11 +317,53 @@ export default function AusentismoDashboard() {
                     ))}
                   </tbody>
                 </table>
-              ) : (
+              )}
+
+              {vistaTabla === 'recurrentes' && (
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-900/50 text-xs uppercase text-amber-400 font-semibold">
+                    <tr>
+                      <th className="p-3">Colaborador Recurrente</th>
+                      <th className="p-3">Empresa</th>
+                      <th className="p-3">Supervisor</th>
+                      <th className="p-3 text-center">Meses c/ Faltas</th>
+                      <th className="p-3 text-center">Días Acumulados</th>
+                      <th className="p-3 text-center">Proyección Anual Estimada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {colaboradoresRecurrentes.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="p-6 text-center text-slate-400">
+                          No se detectaron colaboradores con ausencias repetidas en múltiples meses.
+                        </td>
+                      </tr>
+                    ) : (
+                      colaboradoresRecurrentes.map((p, idx) => (
+                        <tr key={idx} className="hover:bg-slate-700/30">
+                          <td className="p-3 font-medium text-white flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" /> {p.nombre}
+                          </td>
+                          <td className="p-3 text-slate-400">{p.empresa}</td>
+                          <td className="p-3 text-slate-400">{p.supervisor}</td>
+                          <td className="p-3 text-center font-bold text-amber-300">{p.cantMeses} meses</td>
+                          <td className="p-3 text-center font-bold text-slate-200">{p.totalDias} días</td>
+                          <td className="p-3 text-center font-extrabold text-red-400 bg-red-950/20">
+                            ~{p.proyectadoAnual} días / año
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              {vistaTabla === 'historial' && (
                 <table className="w-full text-left text-sm text-slate-300">
                   <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 font-semibold">
                     <tr>
                       <th className="p-3">Fecha</th>
+                      <th className="p-3">Mes</th>
                       <th className="p-3">Colaborador</th>
                       <th className="p-3">Empresa</th>
                       <th className="p-3">Supervisor</th>
@@ -247,6 +376,7 @@ export default function AusentismoDashboard() {
                     {datosFiltrados.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-700/30">
                         <td className="p-3 text-slate-400">{r.fecha}</td>
+                        <td className="p-3 text-slate-300 font-medium">{r.mes}</td>
                         <td className="p-3 font-medium text-white">{r.nombre}</td>
                         <td className="p-3 text-slate-400">{r.empresa}</td>
                         <td className="p-3 text-slate-400">{r.supervisor}</td>
