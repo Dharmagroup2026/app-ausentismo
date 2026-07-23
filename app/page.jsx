@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell 
 } from 'recharts';
-import { Building2, FileText, Upload, Search, ListFilter, Trophy, Calendar, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle, TrendingUp } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
@@ -16,7 +16,7 @@ export default function AusentismoDashboard() {
   const [supervisorFiltro, setSupervisorFiltro] = useState('TODOS');
   const [mesFiltro, setMesFiltro] = useState('TODOS');
   const [busqueda, setBusqueda] = useState('');
-  const [vistaTabla, setVistaTabla] = useState('ranking'); // 'ranking', 'historial', 'recurrentes'
+  const [vistaTabla, setVistaTabla] = useState('ranking');
 
   const manejarArchivo = (e) => {
     const file = e.target.files[0];
@@ -26,32 +26,18 @@ export default function AusentismoDashboard() {
       header: true,
       skipEmptyLines: true,
       complete: (result) => {
-        const datosMapeados = result.data.map((r, i) => {
-          const fechaTexto = r['FECHA'] || r['Fecha'] || 'N/A';
-          let mesNom = 'Sin Mes';
-          
-          if (fechaTexto !== 'N/A') {
-            const partes = fechaTexto.split(/[-/]/);
-            if (partes.length >= 2) {
-              const numMes = parseInt(partes[1], 10);
-              const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-              if (numMes >= 1 && numMes <= 12) mesNom = meses[numMes - 1];
-            }
-          }
-
-          return {
-            id: i + 1,
-            fecha: fechaTexto,
-            mes: mesNom,
-            nombre: r['NOMBRE'] || r['Nombre'] || 'Desconocido',
-            motivo: r['MOTIVO'] || r['Motivo'] || 'Sin Especificar',
-            certif: (r['CERTIF.'] || r['Certif.'] || r['CERTIFICADO'] || 'NO').trim().toUpperCase(),
-            empresa: r['EMPRESA'] || r['Empresa'] || 'Sin Empresa',
-            supervisor: r['SUPERVISOR'] || r['Supervisor'] || 'Sin Asignar',
-            cantDias: parseInt(r['CANT. DIAS'] || r['Cant. Dias'] || r['CANT DIAS'] || 1, 10),
-            observaciones: r['OBSERVACIONES'] || r['Observaciones'] || '-'
-          };
-        });
+        const datosMapeados = result.data.map((r, i) => ({
+          id: i + 1,
+          fecha: r['FECHA'] || r['Fecha'] || 'N/A',
+          mes: (r['MES'] || r['Mes'] || 'Sin Mes').trim(),
+          nombre: r['NOMBRE'] || r['Nombre'] || 'Desconocido',
+          motivo: r['MOTIVO'] || r['Motivo'] || 'Sin Especificar',
+          certif: (r['CERTIF.'] || r['Certif.'] || r['CERTIFICADO'] || 'NO').trim().toUpperCase(),
+          empresa: r['EMPRESA'] || r['Empresa'] || 'Sin Empresa',
+          supervisor: r['SUPERVISOR'] || r['Supervisor'] || 'Sin Asignar',
+          cantDias: parseInt(r['CANT. DIAS'] || r['Cant. Dias'] || r['CANT DIAS'] || 1, 10),
+          observaciones: r['OBSERVACIONES'] || r['Observaciones'] || '-'
+        }));
         setRegistros(datosMapeados);
       }
     });
@@ -59,13 +45,18 @@ export default function AusentismoDashboard() {
 
   const empresasUnicas = useMemo(() => ['TODAS', ...new Set(registros.map(r => r.empresa))], [registros]);
   const supervisoresUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.supervisor))], [registros]);
-  const mesesUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.mes).filter(m => m !== 'Sin Mes'))], [registros]);
+  
+  // Obtiene la lista de meses únicos directamente de la nueva columna MES
+  const mesesUnicos = useMemo(() => {
+    const meses = [...new Set(registros.map(r => r.mes).filter(m => m !== 'Sin Mes'))];
+    return ['TODOS', ...meses];
+  }, [registros]);
 
   const datosFiltrados = useMemo(() => {
     return registros.filter(r => {
       const cumpleEmpresa = empresaFiltro === 'TODAS' || r.empresa === empresaFiltro;
       const cumpleSupervisor = supervisorFiltro === 'TODOS' || r.supervisor === supervisorFiltro;
-      const cumpleMes = mesFiltro === 'TODOS' || r.mes === mesFiltro;
+      const cumpleMes = mesFiltro === 'TODOS' || r.mes.toLowerCase() === mesFiltro.toLowerCase();
       const cumpleBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase()) || 
                              r.motivo.toLowerCase().includes(busqueda.toLowerCase());
       return cumpleEmpresa && cumpleSupervisor && cumpleMes && cumpleBusqueda;
@@ -77,11 +68,9 @@ export default function AusentismoDashboard() {
   const conCertificado = datosFiltrados.filter(r => r.certif === 'SI' || r.certif === 'S').length;
   const pctCertificado = totalAusencias > 0 ? ((conCertificado / totalAusencias) * 100).toFixed(1) : 0;
 
-  // Detección de recurrentes y proyectado anual
   const colaboradoresRecurrentes = useMemo(() => {
     const mapaPersonas = {};
 
-    // Tomamos los datos según empresa y supervisor (sin filtrar por mes único para analizar su historia)
     const datosBase = registros.filter(r => {
       const cumpleEmpresa = empresaFiltro === 'TODAS' || r.empresa === empresaFiltro;
       const cumpleSupervisor = supervisorFiltro === 'TODOS' || r.supervisor === supervisorFiltro;
@@ -99,12 +88,12 @@ export default function AusentismoDashboard() {
           totalFaltas: 0
         };
       }
-      mapaPersonas[r.nombre].mesesConFalta.add(r.mes);
+      if (r.mes !== 'Sin Mes') {
+        mapaPersonas[r.nombre].mesesConFalta.add(r.mes);
+      }
       mapaPersonas[r.nombre].totalDias += r.cantDias;
       mapaPersonas[r.nombre].totalFaltas += 1;
     });
-
-    const cantidadMesesAnalizados = Math.max(1, mesesUnicos.length);
 
     return Object.values(mapaPersonas)
       .map(p => {
@@ -119,9 +108,9 @@ export default function AusentismoDashboard() {
           proyectadoAnual
         };
       })
-      .filter(p => p.cantMeses >= 2) // Considera recurrente si falta en 2 o más meses distintos
+      .filter(p => p.cantMeses >= 2)
       .sort((a, b) => b.proyectadoAnual - a.proyectadoAnual);
-  }, [registros, empresaFiltro, supervisorFiltro, mesesUnicos]);
+  }, [registros, empresaFiltro, supervisorFiltro]);
 
   const dataEmpresas = useMemo(() => {
     const map = {};
@@ -177,7 +166,7 @@ export default function AusentismoDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 my-6">
             <div>
               <label className="text-xs text-slate-400 font-semibold mb-1 block">MES</label>
-              <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+              <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 capitalize">
                 {mesesUnicos.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
@@ -376,7 +365,7 @@ export default function AusentismoDashboard() {
                     {datosFiltrados.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-700/30">
                         <td className="p-3 text-slate-400">{r.fecha}</td>
-                        <td className="p-3 text-slate-300 font-medium">{r.mes}</td>
+                        <td className="p-3 text-slate-300 font-medium capitalize">{r.mes}</td>
                         <td className="p-3 font-medium text-white">{r.nombre}</td>
                         <td className="p-3 text-slate-400">{r.empresa}</td>
                         <td className="p-3 text-slate-400">{r.supervisor}</td>
