@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell 
 } from 'recharts';
-import { Building2, FileText, Upload, Search } from 'lucide-react';
+import { Building2, FileText, Upload, Search, ListFilter, Trophy } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
@@ -15,6 +15,7 @@ export default function AusentismoDashboard() {
   const [empresaFiltro, setEmpresaFiltro] = useState('TODAS');
   const [supervisorFiltro, setSupervisorFiltro] = useState('TODOS');
   const [busqueda, setBusqueda] = useState('');
+  const [vistaTabla, setVistaTabla] = useState('ranking'); // 'ranking' o 'historial'
 
   const manejarArchivo = (e) => {
     const file = e.target.files[0];
@@ -83,7 +84,7 @@ export default function AusentismoDashboard() {
       map[r.nombre].dias += r.cantDias;
       map[r.nombre].faltas += 1;
     });
-    return Object.values(map).sort((a, b) => b.dias - a.dias).slice(0, 5);
+    return Object.values(map).sort((a, b) => b.dias - a.dias);
   }, [datosFiltrados]);
 
   return (
@@ -153,7 +154,10 @@ export default function AusentismoDashboard() {
                 <BarChart data={dataEmpresas}>
                   <XAxis dataKey="nombre" stroke="#94A3B8" fontSize={12} />
                   <YAxis stroke="#94A3B8" fontSize={12} />
-                  <Tooltip contentStyle={{ backgroundColor: '#1E293B', borderColor: '#334155' }} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0F172A', borderColor: '#334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    itemStyle={{ color: '#60A5FA' }}
+                  />
                   <Bar dataKey="dias" fill="#3B82F6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -168,39 +172,96 @@ export default function AusentismoDashboard() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#1E293B', borderColor: '#334155' }} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0F172A', borderColor: '#334155', borderRadius: '8px', color: '#FFFFFF' }}
+                    itemStyle={{ color: '#FFFFFF' }}
+                    labelStyle={{ color: '#93C5FD', fontWeight: 'bold' }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
           </div>
 
+          {/* Tabla Dinámica: Ranking vs Historial */}
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
-            <div className="p-4 border-b border-slate-700/50">
-              <h3 className="text-sm font-bold text-slate-200">Personas con Mayor Índice de Ausencia</h3>
+            <div className="p-4 border-b border-slate-700/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                {vistaTabla === 'ranking' ? <Trophy className="w-4 h-4 text-yellow-500" /> : <ListFilter className="w-4 h-4 text-blue-500" />}
+                {vistaTabla === 'ranking' ? 'Personas con Mayor Ausentismo' : 'Historial Detallado de Licencias'}
+              </h3>
+              
+              <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-700 text-xs font-medium">
+                <button 
+                  onClick={() => setVistaTabla('ranking')}
+                  className={`px-3 py-1.5 rounded-md transition ${vistaTabla === 'ranking' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Mayor Ausentismo
+                </button>
+                <button 
+                  onClick={() => setVistaTabla('historial')}
+                  className={`px-3 py-1.5 rounded-md transition ${vistaTabla === 'historial' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Todas las Licencias
+                </button>
+              </div>
             </div>
+
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-300">
-                <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 font-semibold">
-                  <tr>
-                    <th className="p-3">Colaborador</th>
-                    <th className="p-3">Empresa</th>
-                    <th className="p-3">Supervisor</th>
-                    <th className="p-3 text-center">N° Ausencias</th>
-                    <th className="p-3 text-center">Días Totales</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/50">
-                  {topPersonas.map((p, idx) => (
-                    <tr key={idx} className="hover:bg-slate-700/30">
-                      <td className="p-3 font-medium text-white">{p.nombre}</td>
-                      <td className="p-3 text-slate-400">{p.empresa}</td>
-                      <td className="p-3 text-slate-400">{p.supervisor}</td>
-                      <td className="p-3 text-center font-bold text-blue-400">{p.faltas}</td>
-                      <td className="p-3 text-center font-bold text-red-400">{p.dias}</td>
+              {vistaTabla === 'ranking' ? (
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 font-semibold">
+                    <tr>
+                      <th className="p-3">Colaborador</th>
+                      <th className="p-3">Empresa</th>
+                      <th className="p-3">Supervisor</th>
+                      <th className="p-3 text-center">N° Faltas</th>
+                      <th className="p-3 text-center">Días Totales Perdidos</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {topPersonas.map((p, idx) => (
+                      <tr key={idx} className="hover:bg-slate-700/30">
+                        <td className="p-3 font-medium text-white">{p.nombre}</td>
+                        <td className="p-3 text-slate-400">{p.empresa}</td>
+                        <td className="p-3 text-slate-400">{p.supervisor}</td>
+                        <td className="p-3 text-center font-bold text-blue-400">{p.faltas}</td>
+                        <td className="p-3 text-center font-bold text-red-400">{p.dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-900/50 text-xs uppercase text-slate-400 font-semibold">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3">Colaborador</th>
+                      <th className="p-3">Empresa</th>
+                      <th className="p-3">Supervisor</th>
+                      <th className="p-3">Motivo</th>
+                      <th className="p-3 text-center">Días</th>
+                      <th className="p-3 text-center">Certificado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {datosFiltrados.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-700/30">
+                        <td className="p-3 text-slate-400">{r.fecha}</td>
+                        <td className="p-3 font-medium text-white">{r.nombre}</td>
+                        <td className="p-3 text-slate-400">{r.empresa}</td>
+                        <td className="p-3 text-slate-400">{r.supervisor}</td>
+                        <td className="p-3 text-blue-300">{r.motivo}</td>
+                        <td className="p-3 text-center font-bold text-red-400">{r.cantDias}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${r.certif === 'SI' || r.certif === 'S' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                            {r.certif}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </>
