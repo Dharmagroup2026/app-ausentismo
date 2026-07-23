@@ -10,6 +10,37 @@ import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle,
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
+const NOMBRES_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+// Busca el valor en una fila ignorando espacios y mayúsculas/minúsculas en los nombres de las columnas
+function obtenerCampo(row, posiblesNombres) {
+  const llaves = Object.keys(row);
+  for (let campo of posiblesNombres) {
+    const llaveEncontrada = llaves.find(k => k.trim().toUpperCase() === campo.toUpperCase());
+    if (llaveEncontrada && row[llaveEncontrada] !== undefined && row[llaveEncontrada] !== null) {
+      const val = String(row[llaveEncontrada]).trim();
+      if (val.length > 0) return val;
+    }
+  }
+  return '';
+}
+
+// Extrae el mes desde la fecha si la columna MES vino vacía
+function deducirMesDeFecha(fechaTexto) {
+  if (!fechaTexto) return '';
+  const texto = String(fechaTexto).trim().toLowerCase();
+  for (let m of NOMBRES_MESES) {
+    if (texto.includes(m.toLowerCase())) return m;
+  }
+  const partes = texto.split(/[\/\-\.\s]+/);
+  if (partes.length >= 2) {
+    let idx = parseInt(partes[1], 10);
+    if (partes[0].length === 4) idx = parseInt(partes[1], 10); // YYYY-MM-DD
+    if (idx >= 1 && idx <= 12) return NOMBRES_MESES[idx - 1];
+  }
+  return '';
+}
+
 export default function AusentismoDashboard() {
   const [registros, setRegistros] = useState([]);
   const [empresaFiltro, setEmpresaFiltro] = useState('TODAS');
@@ -25,19 +56,30 @@ export default function AusentismoDashboard() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (h) => h.trim(), // Elimina espacios invisibles en los encabezados
       complete: (result) => {
-        const datosMapeados = result.data.map((r, i) => ({
-          id: i + 1,
-          fecha: r['FECHA'] || r['Fecha'] || 'N/A',
-          mes: (r['MES'] || r['Mes'] || 'Sin Mes').trim(),
-          nombre: r['NOMBRE'] || r['Nombre'] || 'Desconocido',
-          motivo: r['MOTIVO'] || r['Motivo'] || 'Sin Especificar',
-          certif: (r['CERTIF.'] || r['Certif.'] || r['CERTIFICADO'] || 'NO').trim().toUpperCase(),
-          empresa: r['EMPRESA'] || r['Empresa'] || 'Sin Empresa',
-          supervisor: r['SUPERVISOR'] || r['Supervisor'] || 'Sin Asignar',
-          cantDias: parseInt(r['CANT. DIAS'] || r['Cant. Dias'] || r['CANT DIAS'] || 1, 10),
-          observaciones: r['OBSERVACIONES'] || r['Observaciones'] || '-'
-        }));
+        const datosMapeados = result.data.map((r, i) => {
+          const fechaTexto = obtenerCampo(r, ['FECHA', 'Fecha']) || 'N/A';
+          let mesNom = obtenerCampo(r, ['MES', 'Mes', 'MESES', 'Meses']);
+          
+          if (!mesNom || mesNom === '') {
+            mesNom = deducirMesDeFecha(fechaTexto);
+          }
+          if (!mesNom) mesNom = 'Sin Mes';
+
+          return {
+            id: i + 1,
+            fecha: fechaTexto,
+            mes: mesNom,
+            nombre: obtenerCampo(r, ['NOMBRE', 'Nombre', 'COLABORADOR', 'EMPLEADO']) || 'Desconocido',
+            motivo: obtenerCampo(r, ['MOTIVO', 'Motivo', 'CAUSA']) || 'Sin Especificar',
+            certif: (obtenerCampo(r, ['CERTIF.', 'CERTIF', 'Certif.', 'CERTIFICADO']) || 'NO').toUpperCase(),
+            empresa: obtenerCampo(r, ['EMPRESA', 'Empresa']) || 'Sin Empresa',
+            supervisor: obtenerCampo(r, ['SUPERVISOR', 'Supervisor']) || 'Sin Asignar',
+            cantDias: parseInt(obtenerCampo(r, ['CANT. DIAS', 'CANT DIAS', 'Cant. Dias', 'DIAS', 'Días']) || '1', 10),
+            observaciones: obtenerCampo(r, ['OBSERVACIONES', 'Observaciones']) || '-'
+          };
+        });
         setRegistros(datosMapeados);
       }
     });
@@ -46,10 +88,9 @@ export default function AusentismoDashboard() {
   const empresasUnicas = useMemo(() => ['TODAS', ...new Set(registros.map(r => r.empresa))], [registros]);
   const supervisoresUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.supervisor))], [registros]);
   
-  // Obtiene la lista de meses únicos directamente de la nueva columna MES
   const mesesUnicos = useMemo(() => {
-    const meses = [...new Set(registros.map(r => r.mes).filter(m => m !== 'Sin Mes'))];
-    return ['TODOS', ...meses];
+    const lista = [...new Set(registros.map(r => r.mes).filter(m => m && m !== 'Sin Mes'))];
+    return ['TODOS', ...lista];
   }, [registros]);
 
   const datosFiltrados = useMemo(() => {
@@ -88,8 +129,8 @@ export default function AusentismoDashboard() {
           totalFaltas: 0
         };
       }
-      if (r.mes !== 'Sin Mes') {
-        mapaPersonas[r.nombre].mesesConFalta.add(r.mes);
+      if (r.mes && r.mes !== 'Sin Mes') {
+        mapaPersonas[r.nombre].mesesConFalta.add(r.mes.toLowerCase());
       }
       mapaPersonas[r.nombre].totalDias += r.cantDias;
       mapaPersonas[r.nombre].totalFaltas += 1;
@@ -247,7 +288,7 @@ export default function AusentismoDashboard() {
             </div>
           </div>
 
-          {/* Tabla Dinámica con 3 Vistas */}
+          {/* Tabla Dinámica */}
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
             <div className="p-4 border-b border-slate-700/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
