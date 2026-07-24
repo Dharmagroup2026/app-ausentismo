@@ -6,13 +6,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell 
 } from 'recharts';
-import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle, TrendingUp, Users } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
-const NOMBRES_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-// Busca el valor en una fila ignorando espacios y mayúsculas/minúsculas en los nombres de las columnas
 function obtenerCampo(row, posiblesNombres) {
   const llaves = Object.keys(row);
   for (let campo of posiblesNombres) {
@@ -21,22 +18,6 @@ function obtenerCampo(row, posiblesNombres) {
       const val = String(row[llaveEncontrada]).trim();
       if (val.length > 0) return val;
     }
-  }
-  return '';
-}
-
-// Extrae el mes desde la fecha si la columna MES vino vacía
-function deducirMesDeFecha(fechaTexto) {
-  if (!fechaTexto) return '';
-  const texto = String(fechaTexto).trim().toLowerCase();
-  for (let m of NOMBRES_MESES) {
-    if (texto.includes(m.toLowerCase())) return m;
-  }
-  const partes = texto.split(/[\/\-\.\s]+/);
-  if (partes.length >= 2) {
-    let idx = parseInt(partes[1], 10);
-    if (partes[0].length === 4) idx = parseInt(partes[1], 10); // YYYY-MM-DD
-    if (idx >= 1 && idx <= 12) return NOMBRES_MESES[idx - 1];
   }
   return '';
 }
@@ -56,27 +37,24 @@ export default function AusentismoDashboard() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      transformHeader: (h) => h.trim(), // Elimina espacios invisibles en los encabezados
+      encoding: "ISO-8859-1",
+      transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
       complete: (result) => {
         const datosMapeados = result.data.map((r, i) => {
           const fechaTexto = obtenerCampo(r, ['FECHA', 'Fecha']) || 'N/A';
-          let mesNom = obtenerCampo(r, ['MES', 'Mes', 'MESES', 'Meses']);
-          
-          if (!mesNom || mesNom === '') {
-            mesNom = deducirMesDeFecha(fechaTexto);
-          }
+          let mesNom = obtenerCampo(r, ['MES', 'Mes', 'MESES']);
           if (!mesNom) mesNom = 'Sin Mes';
 
           return {
             id: i + 1,
             fecha: fechaTexto,
-            mes: mesNom,
-            nombre: obtenerCampo(r, ['NOMBRE', 'Nombre', 'COLABORADOR', 'EMPLEADO']) || 'Desconocido',
+            mes: mesNom.toUpperCase(),
+            nombre: obtenerCampo(r, ['NOMBRE', 'Nombre', 'COLABORADOR']) || 'Desconocido',
             motivo: obtenerCampo(r, ['MOTIVO', 'Motivo', 'CAUSA']) || 'Sin Especificar',
             certif: (obtenerCampo(r, ['CERTIF.', 'CERTIF', 'Certif.', 'CERTIFICADO']) || 'NO').toUpperCase(),
             empresa: obtenerCampo(r, ['EMPRESA', 'Empresa']) || 'Sin Empresa',
             supervisor: obtenerCampo(r, ['SUPERVISOR', 'Supervisor']) || 'Sin Asignar',
-            cantDias: parseInt(obtenerCampo(r, ['CANT. DIAS', 'CANT DIAS', 'Cant. Dias', 'DIAS', 'Días']) || '1', 10),
+            cantDias: parseInt(obtenerCampo(r, ['CANT. DIAS', 'CANT DIAS', 'Cant. Dias', 'DIAS']) || '1', 10),
             observaciones: obtenerCampo(r, ['OBSERVACIONES', 'Observaciones']) || '-'
           };
         });
@@ -85,11 +63,27 @@ export default function AusentismoDashboard() {
     });
   };
 
+  // Empresas únicas
   const empresasUnicas = useMemo(() => ['TODAS', ...new Set(registros.map(r => r.empresa))], [registros]);
-  const supervisoresUnicos = useMemo(() => ['TODOS', ...new Set(registros.map(r => r.supervisor))], [registros]);
-  
+
+  // AJUSTE 1: Supervisores filtrados dinámicamente según la empresa seleccionada
+  const supervisoresUnicos = useMemo(() => {
+    let registrosEmpresa = registros;
+    if (empresaFiltro !== 'TODAS') {
+      registrosEmpresa = registros.filter(r => r.empresa === empresaFiltro);
+    }
+    const listaSupervisores = [...new Set(registrosEmpresa.map(r => r.supervisor))];
+    return ['TODOS', ...listaSupervisores];
+  }, [registros, empresaFiltro]);
+
+  // Resetear el supervisor si no pertenece a la nueva empresa seleccionada
+  const manejarCambioEmpresa = (nuevaEmpresa) => {
+    setEmpresaFiltro(nuevaEmpresa);
+    setSupervisorFiltro('TODOS');
+  };
+
   const mesesUnicos = useMemo(() => {
-    const lista = [...new Set(registros.map(r => r.mes).filter(m => m && m !== 'Sin Mes'))];
+    const lista = [...new Set(registros.map(r => r.mes).filter(m => m && m !== 'SIN MES'))];
     return ['TODOS', ...lista];
   }, [registros]);
 
@@ -97,18 +91,19 @@ export default function AusentismoDashboard() {
     return registros.filter(r => {
       const cumpleEmpresa = empresaFiltro === 'TODAS' || r.empresa === empresaFiltro;
       const cumpleSupervisor = supervisorFiltro === 'TODOS' || r.supervisor === supervisorFiltro;
-      const cumpleMes = mesFiltro === 'TODOS' || r.mes.toLowerCase() === mesFiltro.toLowerCase();
+      const cumpleMes = mesFiltro === 'TODOS' || r.mes.toUpperCase() === mesFiltro.toUpperCase();
       const cumpleBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase()) || 
                              r.motivo.toLowerCase().includes(busqueda.toLowerCase());
       return cumpleEmpresa && cumpleSupervisor && cumpleMes && cumpleBusqueda;
     });
   }, [registros, empresaFiltro, supervisorFiltro, mesFiltro, busqueda]);
 
-  const totalDias = useMemo(() => datosFiltrados.reduce((acc, r) => acc + r.cantDias, 0), [datosFiltrados]);
+  const totalDias = useMemo(() => datosFiltrados.reduce((acc, r) => acc + (isNaN(r.cantDias) ? 1 : r.cantDias), 0), [datosFiltrados]);
   const totalAusencias = datosFiltrados.length;
   const conCertificado = datosFiltrados.filter(r => r.certif === 'SI' || r.certif === 'S').length;
   const pctCertificado = totalAusencias > 0 ? ((conCertificado / totalAusencias) * 100).toFixed(1) : 0;
 
+  // AJUSTE 2: Detección y listado claro de personas recurrentes
   const colaboradoresRecurrentes = useMemo(() => {
     const mapaPersonas = {};
 
@@ -129,10 +124,10 @@ export default function AusentismoDashboard() {
           totalFaltas: 0
         };
       }
-      if (r.mes && r.mes !== 'Sin Mes') {
-        mapaPersonas[r.nombre].mesesConFalta.add(r.mes.toLowerCase());
+      if (r.mes && r.mes !== 'SIN MES') {
+        mapaPersonas[r.nombre].mesesConFalta.add(r.mes);
       }
-      mapaPersonas[r.nombre].totalDias += r.cantDias;
+      mapaPersonas[r.nombre].totalDias += isNaN(r.cantDias) ? 1 : r.cantDias;
       mapaPersonas[r.nombre].totalFaltas += 1;
     });
 
@@ -156,7 +151,7 @@ export default function AusentismoDashboard() {
   const dataEmpresas = useMemo(() => {
     const map = {};
     datosFiltrados.forEach(r => {
-      map[r.empresa] = (map[r.empresa] || 0) + r.cantDias;
+      map[r.empresa] = (map[r.empresa] || 0) + (isNaN(r.cantDias) ? 1 : r.cantDias);
     });
     return Object.keys(map).map(k => ({ nombre: k, dias: map[k] }));
   }, [datosFiltrados]);
@@ -164,7 +159,7 @@ export default function AusentismoDashboard() {
   const dataMotivos = useMemo(() => {
     const map = {};
     datosFiltrados.forEach(r => {
-      map[r.motivo] = (map[r.motivo] || 0) + r.cantDias;
+      map[r.motivo] = (map[r.motivo] || 0) + (isNaN(r.cantDias) ? 1 : r.cantDias);
     });
     return Object.keys(map).map(k => ({ name: k, value: map[k] }));
   }, [datosFiltrados]);
@@ -175,7 +170,7 @@ export default function AusentismoDashboard() {
       if (!map[r.nombre]) {
         map[r.nombre] = { nombre: r.nombre, empresa: r.empresa, supervisor: r.supervisor, dias: 0, faltas: 0 };
       }
-      map[r.nombre].dias += r.cantDias;
+      map[r.nombre].dias += isNaN(r.cantDias) ? 1 : r.cantDias;
       map[r.nombre].faltas += 1;
     });
     return Object.values(map).sort((a, b) => b.dias - a.dias);
@@ -207,13 +202,13 @@ export default function AusentismoDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 my-6">
             <div>
               <label className="text-xs text-slate-400 font-semibold mb-1 block">MES</label>
-              <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 capitalize">
+              <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 uppercase">
                 {mesesUnicos.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs text-slate-400 font-semibold mb-1 block">EMPRESA</label>
-              <select value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+              <select value={empresaFiltro} onChange={(e) => manejarCambioEmpresa(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
                 {empresasUnicas.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             </div>
@@ -245,11 +240,29 @@ export default function AusentismoDashboard() {
               <span className="text-xs font-bold text-emerald-400 tracking-wider uppercase">% Con Certificado</span>
               <p className="text-3xl font-extrabold text-white mt-1">{pctCertificado}% <span className="text-sm font-normal text-slate-400">respaldadas</span></p>
             </div>
-            <div className="bg-slate-800 p-5 rounded-xl border border-amber-500/30">
+            
+            {/* Tarjeta Recurrentes interactiva y detallada */}
+            <div className="bg-slate-800 p-5 rounded-xl border border-amber-500/40 relative">
               <span className="text-xs font-bold text-amber-400 tracking-wider uppercase flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" /> Faltas Recurrentes
               </span>
-              <p className="text-3xl font-extrabold text-amber-300 mt-1">{colaboradoresRecurrentes.length} <span className="text-sm font-normal text-slate-400">personas</span></p>
+              <p className="text-3xl font-extrabold text-amber-300 mt-1">
+                {colaboradoresRecurrentes.length} <span className="text-sm font-normal text-slate-400">personas</span>
+              </p>
+              
+              {colaboradoresRecurrentes.length > 0 && (
+                <div className="mt-2 text-xs text-slate-300 border-t border-slate-700/60 pt-2">
+                  <span className="font-semibold text-amber-400/90 block mb-1">Colaboradores en riesgo:</span>
+                  <div className="max-h-16 overflow-y-auto space-y-0.5 pr-1">
+                    {colaboradoresRecurrentes.map((c, i) => (
+                      <div key={i} className="flex justify-between items-center text-slate-300">
+                        <span className="truncate max-w-[130px]">• {c.nombre}</span>
+                        <span className="text-red-400 font-bold shrink-0">{c.totalDias}d ({c.cantMeses}m)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -406,7 +419,7 @@ export default function AusentismoDashboard() {
                     {datosFiltrados.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-700/30">
                         <td className="p-3 text-slate-400">{r.fecha}</td>
-                        <td className="p-3 text-slate-300 font-medium capitalize">{r.mes}</td>
+                        <td className="p-3 text-slate-300 font-medium uppercase">{r.mes}</td>
                         <td className="p-3 font-medium text-white">{r.nombre}</td>
                         <td className="p-3 text-slate-400">{r.empresa}</td>
                         <td className="p-3 text-slate-400">{r.supervisor}</td>
