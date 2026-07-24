@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell 
 } from 'recharts';
-import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle, TrendingUp, Users } from 'lucide-react';
+import { Building2, FileText, Upload, Search, ListFilter, Trophy, AlertTriangle, TrendingUp } from 'lucide-react';
 
 const COLORS = ['#1E40AF', '#3B82F6', '#60A5FA', '#93C5FD', '#F59E0B', '#EF4444', '#10B981'];
 
@@ -29,6 +29,18 @@ export default function AusentismoDashboard() {
   const [mesFiltro, setMesFiltro] = useState('TODOS');
   const [busqueda, setBusqueda] = useState('');
   const [vistaTabla, setVistaTabla] = useState('ranking');
+
+  // Cargar datos guardados previamente en el navegador al abrir la app
+  useEffect(() => {
+    const datosGuardados = localStorage.getItem('ausentismo_datos_csv');
+    if (datosGuardados) {
+      try {
+        setRegistros(JSON.parse(datosGuardados));
+      } catch (e) {
+        console.error("Error al cargar datos de localStorage", e);
+      }
+    }
+  }, []);
 
   const manejarArchivo = (e) => {
     const file = e.target.files[0];
@@ -58,15 +70,16 @@ export default function AusentismoDashboard() {
             observaciones: obtenerCampo(r, ['OBSERVACIONES', 'Observaciones']) || '-'
           };
         });
+
         setRegistros(datosMapeados);
+        // Guardar copia persistente en el navegador
+        localStorage.setItem('ausentismo_datos_csv', JSON.stringify(datosMapeados));
       }
     });
   };
 
-  // Empresas únicas
   const empresasUnicas = useMemo(() => ['TODAS', ...new Set(registros.map(r => r.empresa))], [registros]);
 
-  // AJUSTE 1: Supervisores filtrados dinámicamente según la empresa seleccionada
   const supervisoresUnicos = useMemo(() => {
     let registrosEmpresa = registros;
     if (empresaFiltro !== 'TODAS') {
@@ -76,7 +89,6 @@ export default function AusentismoDashboard() {
     return ['TODOS', ...listaSupervisores];
   }, [registros, empresaFiltro]);
 
-  // Resetear el supervisor si no pertenece a la nueva empresa seleccionada
   const manejarCambioEmpresa = (nuevaEmpresa) => {
     setEmpresaFiltro(nuevaEmpresa);
     setSupervisorFiltro('TODOS');
@@ -103,7 +115,6 @@ export default function AusentismoDashboard() {
   const conCertificado = datosFiltrados.filter(r => r.certif === 'SI' || r.certif === 'S').length;
   const pctCertificado = totalAusencias > 0 ? ((conCertificado / totalAusencias) * 100).toFixed(1) : 0;
 
-  // AJUSTE 2: Detección y listado claro de personas recurrentes
   const colaboradoresRecurrentes = useMemo(() => {
     const mapaPersonas = {};
 
@@ -241,7 +252,6 @@ export default function AusentismoDashboard() {
               <p className="text-3xl font-extrabold text-white mt-1">{pctCertificado}% <span className="text-sm font-normal text-slate-400">respaldadas</span></p>
             </div>
             
-            {/* Tarjeta Recurrentes interactiva y detallada */}
             <div className="bg-slate-800 p-5 rounded-xl border border-amber-500/40 relative">
               <span className="text-xs font-bold text-amber-400 tracking-wider uppercase flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" /> Faltas Recurrentes
